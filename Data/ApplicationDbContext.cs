@@ -19,6 +19,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<DiaryCustomer> DiaryCustomer { get; set; } = null!;
     public DbSet<DiaryItems> DiaryItems { get; set; } = null!;
 
+    public DbSet<HisabDiaryCustomer> HisabDiaryCustomer { get; set; } = null!;
+    public DbSet<HisabDiaryTransaction> HisabDiaryTransaction { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
 

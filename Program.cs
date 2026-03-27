@@ -12,6 +12,7 @@ using DotnetBoilerplate.Features.Customers;
 using DotnetBoilerplate.Features.InvoiceItems;
 using DotnetBoilerplate.Features.CustomerInvoices;
 using DotnetBoilerplate.Features.Diary;
+using DotnetBoilerplate.Features.HisabDiary;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,6 +55,7 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<IInvoiceItemsService, InvoiceItemsService>();
 builder.Services.AddScoped<ICustomerInvoicesService, CustomerInvoicesService>();
 builder.Services.AddScoped<IDiaryCustomerService, DiaryService>();
+builder.Services.AddScoped<IHisabDiaryService, HisabDiaryService>();
 builder.Services.AddHttpClient<WhatsAppService>();
 builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
 
@@ -91,6 +93,7 @@ app.MapCustomerEndpoints();
 app.MapInvoiceItemsEndpoints();
 app.MapCustomerInvoicesEndpoints();
 app.MapDiaryEndpoints();
+app.MapHisabDiaryEndpoints();
 
 // var staticFilesSection = builder.Configuration.GetSection("StaticFiles");
 
