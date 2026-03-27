@@ -1,0 +1,13 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+D:\Office\DotnetBoilerplate\Services\AuthService.cs(11,26): error CS0246: The type or namespace name 'User' could not be found (are you missing a using directive or an assembly reference?) [D:\Office\DotnetBoilerplate\DotnetBoilerplate.csproj]
+D:\Office\DotnetBoilerplate\Services\AuthService.cs(23,33): error CS0246: The type or namespace name 'User' could not be found (are you missing a using directive or an assembly reference?) [D:\Office\DotnetBoilerplate\DotnetBoilerplate.csproj]
+
+Build FAILED.
+
+D:\Office\DotnetBoilerplate\Services\AuthService.cs(11,26): error CS0246: The type or namespace name 'User' could not be found (are you missing a using directive or an assembly reference?) [D:\Office\DotnetBoilerplate\DotnetBoilerplate.csproj]
+D:\Office\DotnetBoilerplate\Services\AuthService.cs(23,33): error CS0246: The type or namespace name 'User' could not be found (are you missing a using directive or an assembly reference?) [D:\Office\DotnetBoilerplate\DotnetBoilerplate.csproj]
+    0 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:01.56

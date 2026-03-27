@@ -1,0 +1,29 @@
+.vs/
+
+# Build results
+bin/
+obj/
+dist/
+
+# Visual Studio
+.vs/
+.vscode/
+!.vscode/extensions.json
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node (if frontend inside backend)
+node_modules/
+*.local
