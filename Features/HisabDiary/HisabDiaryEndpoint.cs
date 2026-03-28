@@ -16,10 +16,11 @@ public static class HisabDiaryEndpoints
         group.MapGet("/customer", async (
             IHisabDiaryService hisabDiaryService,
             int page = 1,
-            int pageSize = 10
+            int pageSize = 10,
+            string? search = null
         ) =>
         {
-            return await hisabDiaryService.GetAllHisabDiaryCustomersAsync(page, pageSize);
+            return await hisabDiaryService.GetAllHisabDiaryCustomersAsync(page, pageSize, search);
         });
 
         group.MapPost("/customer/add", async (
@@ -140,12 +141,29 @@ public static class HisabDiaryEndpoints
                 : Results.Ok(result);
         });
 
+        //group.MapGet("/transaction/customer/{cusId:int}", async (
+        //    IHisabDiaryService hisabDiaryService,
+        //    int cusId
+        //) =>
+        //{
+        //    var result = await hisabDiaryService.GetTransactionsByCustomerIdAsync(cusId);
+
+        //    if (result is not null && result.GetType().GetProperty("status")?.GetValue(result)?.ToString() == "error")
+        //    {
+        //        return Results.NotFound(result);
+        //    }
+
+        //    return Results.Ok(result);
+        //});
+
         group.MapGet("/transaction/customer/{cusId:int}", async (
             IHisabDiaryService hisabDiaryService,
-            int cusId
+            int cusId,
+            int page = 1,
+            int pageSize = 20
         ) =>
         {
-            var result = await hisabDiaryService.GetTransactionsByCustomerIdAsync(cusId);
+            var result = await hisabDiaryService.GetTransactionsByCustomerIdAsync(cusId, page, pageSize);
 
             if (result is not null && result.GetType().GetProperty("status")?.GetValue(result)?.ToString() == "error")
             {

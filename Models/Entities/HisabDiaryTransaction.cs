@@ -1,5 +1,6 @@
-namespace DotnetBoilerplate.Models.Entities;
+using System.ComponentModel.DataAnnotations.Schema;
 
+namespace DotnetBoilerplate.Models.Entities;
 
 public class HisabDiaryTransaction
 {
@@ -13,6 +14,7 @@ public class HisabDiaryTransaction
 
     public decimal? Cash { get; set; }
 
+    [Column(TypeName = "nvarchar(max)")]
     public string? Comment { get; set; }
 
     public string? MediaUrls { get; set; }

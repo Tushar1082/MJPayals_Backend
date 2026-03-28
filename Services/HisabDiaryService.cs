@@ -10,7 +10,7 @@ public interface IHisabDiaryService
 {
     // Customer Methods
     Task<object> AddHisabDiaryCustomerAsync(string name, string phone, string? address, string? city, string? firmName);
-    Task<object> GetAllHisabDiaryCustomersAsync(int page = 1, int pageSize = 10);
+    Task<object> GetAllHisabDiaryCustomersAsync(int page = 1, int pageSize = 10, string? search = null);
     Task<object?> GetHisabDiaryCustomerByIdAsync(int id);
     Task<object> SearchHisabDiaryCustomersAsync(string term);
 
@@ -18,7 +18,7 @@ public interface IHisabDiaryService
     Task<object> AddHisabDiaryTransactionAsync(int cusId, string transactionType, decimal? silverInGram, decimal? cash, string? comment, string? mediaUrls, DateTime transactionDate);
     Task<object> GetAllHisabDiaryTransactionsAsync();
     Task<object?> GetHisabDiaryTransactionByIdAsync(int id);
-    Task<object> GetTransactionsByCustomerIdAsync(int cusId);
+    Task<object> GetTransactionsByCustomerIdAsync(int cusId, int page = 1, int pageSize = 20);
     Task<object> DeleteHisabDiaryTransactionAsync(int id);
 }
 
@@ -66,12 +66,25 @@ public class HisabDiaryService : IHisabDiaryService
         };
     }
 
-    public async Task<object> GetAllHisabDiaryCustomersAsync(int page = 1, int pageSize = 10)
+    public async Task<object> GetAllHisabDiaryCustomersAsync(int page = 1, int pageSize = 10, string? search = null)
     {
         if (page <= 0) page = 1;
         if (pageSize <= 0) pageSize = 10;
 
-        var query = _db.HisabDiaryCustomer
+        var baseQuery = _db.HisabDiaryCustomer.AsQueryable();
+
+        // 🔴 SEARCH FILTER LOGIC ADDED HERE
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            search = search.Trim();
+            baseQuery = baseQuery.Where(c =>
+                c.Name.Contains(search) ||
+                c.Phone.Contains(search) ||
+                (c.FirmName != null && c.FirmName.Contains(search))
+            );
+        }
+
+        var query = baseQuery
         .Select(c => new
         {
             c.Id,
@@ -82,13 +95,23 @@ public class HisabDiaryService : IHisabDiaryService
             c.FirmName,
             c.CreatedAt,
 
-            TotalNaam = _db.HisabDiaryTransaction
-                .Where(t => t.CusId == c.Id && t.TransactionType == "N")
-                .Sum(t => (decimal?)(t.SilverInGram)) ?? 0,
+            // Naam (Dr) Totals
+            TotalNaamSilver = _db.HisabDiaryTransaction
+            .Where(t => t.CusId == c.Id && t.TransactionType == "N")
+            .Sum(t => (decimal?)t.SilverInGram) ?? 0,
 
-            TotalJama = _db.HisabDiaryTransaction
-                .Where(t => t.CusId == c.Id && t.TransactionType == "J")
-                .Sum(t => (decimal?)(t.SilverInGram)) ?? 0
+            TotalNaamCash = _db.HisabDiaryTransaction
+            .Where(t => t.CusId == c.Id && t.TransactionType == "N")
+            .Sum(t => (decimal?)t.Cash) ?? 0,
+
+            // Jama (Cr) Totals
+            TotalJamaSilver = _db.HisabDiaryTransaction
+            .Where(t => t.CusId == c.Id && t.TransactionType == "J")
+            .Sum(t => (decimal?)t.SilverInGram) ?? 0,
+
+            TotalJamaCash = _db.HisabDiaryTransaction
+            .Where(t => t.CusId == c.Id && t.TransactionType == "J")
+            .Sum(t => (decimal?)t.Cash) ?? 0
         })
         .OrderByDescending(x => x.Id);
 
@@ -245,23 +268,58 @@ public class HisabDiaryService : IHisabDiaryService
         };
     }
 
-    public async Task<object> GetTransactionsByCustomerIdAsync(int cusId)
+    //public async Task<object> GetTransactionsByCustomerIdAsync(int cusId)
+    //{
+    //    var exists = await _db.HisabDiaryCustomer
+    //        .AnyAsync(x => x.Id == cusId);
+
+    //    if (!exists)
+    //    {
+    //        return new
+    //        {
+    //            status = "error",
+    //            message = "Customer not found"
+    //        };
+    //    }
+
+    //    var transactions = await _db.HisabDiaryTransaction
+    //        .Where(x => x.CusId == cusId)
+    //        .OrderByDescending(x => x.TransactionDate)
+    //        .Select(x => new
+    //        {
+    //            x.Id,
+    //            x.TransactionType,
+    //            x.SilverInGram,
+    //            x.Cash,
+    //            x.Comment,
+    //            x.MediaUrls,
+    //            x.TransactionDate
+    //        })
+    //        .ToListAsync();
+
+    //    return new
+    //    {
+    //        status = "success",
+    //        data = transactions
+    //    };
+    //}
+
+    public async Task<object> GetTransactionsByCustomerIdAsync(int cusId, int page = 1, int pageSize = 20)
     {
-        var exists = await _db.HisabDiaryCustomer
-            .AnyAsync(x => x.Id == cusId);
+        if (page <= 0) page = 1;
+        if (pageSize <= 0) pageSize = 20;
+
+        var exists = await _db.HisabDiaryCustomer.AnyAsync(x => x.Id == cusId);
 
         if (!exists)
         {
-            return new
-            {
-                status = "error",
-                message = "Customer not found"
-            };
+            return new { status = "error", message = "Customer not found" };
         }
 
-        var transactions = await _db.HisabDiaryTransaction
+        // Saari transactions fetch karenge ascending order mein taaki running balance nikal sake
+        var allTransactions = await _db.HisabDiaryTransaction
             .Where(x => x.CusId == cusId)
-            .OrderByDescending(x => x.TransactionDate)
+            .OrderBy(x => x.TransactionDate).ThenBy(x => x.Id)
             .Select(x => new
             {
                 x.Id,
@@ -274,10 +332,78 @@ public class HisabDiaryService : IHisabDiaryService
             })
             .ToListAsync();
 
+        decimal runningSilver = 0;
+        decimal runningCash = 0;
+        decimal totalNaamSilver = 0, totalNaamCash = 0;
+        decimal totalJamaSilver = 0, totalJamaCash = 0;
+
+        var processedList = new List<object>();
+
+        foreach (var t in allTransactions)
+        {
+            var silver = t.SilverInGram ?? 0;
+            var cash = t.Cash ?? 0;
+
+            if (t.TransactionType == "N")
+            {
+                totalNaamSilver += silver;
+                totalNaamCash += cash;
+                runningSilver -= silver;
+                runningCash -= cash;
+            }
+            else if (t.TransactionType == "J")
+            {
+                totalJamaSilver += silver;
+                totalJamaCash += cash;
+                runningSilver += silver;
+                runningCash += cash;
+            }
+
+            processedList.Add(new
+            {
+                t.Id,
+                t.TransactionType,
+                t.SilverInGram,
+                t.Cash,
+                t.Comment,
+                t.MediaUrls,
+                t.TransactionDate,
+                RunningSilver = runningSilver,
+                RunningCash = runningCash
+            });
+        }
+
+        // Latest first (Descending) karne ke liye reverse karenge
+        processedList.Reverse();
+
+        var totalRecords = processedList.Count;
+
+        // Pagination apply karenge
+        var paginatedData = processedList
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
         return new
         {
             status = "success",
-            data = transactions
+            data = paginatedData,
+            summary = new
+            {
+                TotalNaamSilver = totalNaamSilver,
+                TotalNaamCash = totalNaamCash,
+                TotalJamaSilver = totalJamaSilver,
+                TotalJamaCash = totalJamaCash,
+                NetSilver = totalJamaSilver - totalNaamSilver,
+                NetCash = totalJamaCash - totalNaamCash
+            },
+            pagination = new
+            {
+                currentPage = page,
+                pageSize = pageSize,
+                totalRecords = totalRecords,
+                totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize)
+            }
         };
     }
 
