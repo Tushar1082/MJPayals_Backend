@@ -2,6 +2,7 @@ using DotnetBoilerplate.Data;
 using DotnetBoilerplate.Models.Entities;
 using DotnetBoilerplate.Models.Requests;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 using System.Text.Json;
 
 namespace DotnetBoilerplate.Services;
@@ -13,24 +14,29 @@ public interface IHisabDiaryService
     Task<object> GetAllHisabDiaryCustomersAsync(int page = 1, int pageSize = 10, string? search = null);
     Task<object?> GetHisabDiaryCustomerByIdAsync(int id);
     Task<object> SearchHisabDiaryCustomersAsync(string term);
+    Task<object> DeleteHisabDiaryCustomerAsync(int id);
 
     // Transaction Methods
     Task<object> AddHisabDiaryTransactionAsync(int cusId, string transactionType, decimal? silverInGram, decimal? cash, string? comment, string? mediaUrls, DateTime transactionDate);
     Task<object> GetAllHisabDiaryTransactionsAsync();
     Task<object?> GetHisabDiaryTransactionByIdAsync(int id);
     Task<object> GetTransactionsByCustomerIdAsync(int cusId, int page = 1, int pageSize = 20);
+    Task<object> UpdateHisabDiaryTransactionAsync(int id, string transactionType, decimal? silverInGram, decimal? cash, string? comment, DateTime transactionDate);
     Task<object> DeleteHisabDiaryTransactionAsync(int id);
+    Task<object> SendWhatsAppReportAsync(int cusId);
 }
 
 public class HisabDiaryService : IHisabDiaryService
 {
     private readonly ApplicationDbContext _db;
     private readonly IConfiguration _config;
+    private readonly IWhatsAppService _whatsAppService;
 
-    public HisabDiaryService(ApplicationDbContext db, IConfiguration config)
+    public HisabDiaryService(ApplicationDbContext db, IConfiguration config, IWhatsAppService whatsAppService)
     {
         _db = db;
         _config = config;
+        _whatsAppService = whatsAppService;
     }
 
     //=================================================== Hisab Diary Customer Service Methods ===================================
@@ -182,6 +188,63 @@ public class HisabDiaryService : IHisabDiaryService
         };
     }
 
+    public async Task<object> DeleteHisabDiaryCustomerAsync(int id)
+    {
+        using var transaction = await _db.Database.BeginTransactionAsync();
+
+        try
+        {
+            var customer = await _db.HisabDiaryCustomer.FirstOrDefaultAsync(x => x.Id == id);
+
+            if (customer == null)
+            {
+                return new
+                {
+                    status = "error",
+                    message = "Customer not found"
+                };
+            }
+
+            // 1. Find related transactions
+            var relatedTransactions = await _db.HisabDiaryTransaction
+                                               .Where(t => t.CusId == id)
+                                               .ToListAsync();
+
+            // 2. Remove transactions (if any) and FORCE execution immediately
+            if (relatedTransactions.Any())
+            {
+                _db.HisabDiaryTransaction.RemoveRange(relatedTransactions);
+
+                // FIX: Ye line force karegi ki pehle child records database se udey
+                await _db.SaveChangesAsync();
+            }
+
+            // 3. Remove customer now that child records are safely gone
+            _db.HisabDiaryCustomer.Remove(customer);
+            await _db.SaveChangesAsync(); // Ab customer araam se delete ho jayega
+
+            // 4. Sab kuch successful hone ke baad permanent commit
+            await transaction.CommitAsync();
+
+            return new
+            {
+                status = "success",
+                message = "Customer and all related transactions deleted successfully"
+            };
+        }
+        catch (Exception ex)
+        {
+            // ERROR HANDLING (Atomicity in action)
+            await transaction.RollbackAsync();
+
+            return new
+            {
+                status = "error",
+                message = "An error occurred during deletion. No data was deleted. (Rolled back)"
+            };
+        }
+    }
+
     //=================================================== Hisab Diary Transaction Service Methods ===================================
 
 
@@ -316,7 +379,6 @@ public class HisabDiaryService : IHisabDiaryService
             return new { status = "error", message = "Customer not found" };
         }
 
-        // Saari transactions fetch karenge ascending order mein taaki running balance nikal sake
         var allTransactions = await _db.HisabDiaryTransaction
             .Where(x => x.CusId == cusId)
             .OrderBy(x => x.TransactionDate).ThenBy(x => x.Id)
@@ -332,8 +394,6 @@ public class HisabDiaryService : IHisabDiaryService
             })
             .ToListAsync();
 
-        decimal runningSilver = 0;
-        decimal runningCash = 0;
         decimal totalNaamSilver = 0, totalNaamCash = 0;
         decimal totalJamaSilver = 0, totalJamaCash = 0;
 
@@ -348,15 +408,11 @@ public class HisabDiaryService : IHisabDiaryService
             {
                 totalNaamSilver += silver;
                 totalNaamCash += cash;
-                runningSilver -= silver;
-                runningCash -= cash;
             }
             else if (t.TransactionType == "J")
             {
                 totalJamaSilver += silver;
                 totalJamaCash += cash;
-                runningSilver += silver;
-                runningCash += cash;
             }
 
             processedList.Add(new
@@ -367,9 +423,7 @@ public class HisabDiaryService : IHisabDiaryService
                 t.Cash,
                 t.Comment,
                 t.MediaUrls,
-                t.TransactionDate,
-                RunningSilver = runningSilver,
-                RunningCash = runningCash
+                t.TransactionDate
             });
         }
 
@@ -407,6 +461,37 @@ public class HisabDiaryService : IHisabDiaryService
         };
     }
 
+    public async Task<object> UpdateHisabDiaryTransactionAsync(
+    int id,
+    string transactionType,
+    decimal? silverInGram,
+    decimal? cash,
+    string? comment,
+    DateTime transactionDate)
+    {
+        var transaction = await _db.HisabDiaryTransaction.FirstOrDefaultAsync(x => x.Id == id);
+
+        if (transaction == null)
+        {
+            return new { status = "error", message = "Transaction not found" };
+        }
+
+        transaction.TransactionType = transactionType;
+        transaction.SilverInGram = silverInGram;
+        transaction.Cash = cash;
+        transaction.Comment = comment;
+        transaction.TransactionDate = transactionDate;
+
+        await _db.SaveChangesAsync();
+
+        return new
+        {
+            status = "success",
+            message = "Transaction updated successfully",
+            data = transaction
+        };
+    }
+
     public async Task<object> DeleteHisabDiaryTransactionAsync(int id)
     {
         var transaction = await _db.HisabDiaryTransaction
@@ -429,6 +514,88 @@ public class HisabDiaryService : IHisabDiaryService
             status = "success",
             message = "Transaction deleted successfully"
         };
+    }
+
+    public async Task<object> SendWhatsAppReportAsync(int cusId)
+    {
+        var customer = await _db.HisabDiaryCustomer.FirstOrDefaultAsync(x => x.Id == cusId);
+        if (customer == null) return new { status = "error", message = "Customer not found" };
+
+        var transactions = await _db.HisabDiaryTransaction
+            .Where(x => x.CusId == cusId)
+            .OrderBy(x => x.TransactionDate).ThenBy(x => x.Id)
+            .ToListAsync();
+
+        string defaultPhone = _config["WhatsApp:PhoneNumber"];
+        if (string.IsNullOrEmpty(defaultPhone))
+            return new { status = "error", message = "Default WhatsApp number not configured in appsettings." };
+
+        // Calculate balances
+        decimal totalNaamSilver = 0, totalNaamCash = 0, totalJamaSilver = 0, totalJamaCash = 0;
+        foreach (var t in transactions)
+        {
+            if (t.TransactionType == "N") { totalNaamSilver += t.SilverInGram ?? 0; totalNaamCash += t.Cash ?? 0; }
+            else { totalJamaSilver += t.SilverInGram ?? 0; totalJamaCash += t.Cash ?? 0; }
+        }
+        decimal netSilver = totalNaamSilver - totalJamaSilver;
+        decimal netCash = totalNaamCash - totalJamaCash;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("*MJ PAYAL JEWELLERS,*");
+        //sb.AppendLine("*Sev Ka Bazar,Agra*");
+        sb.AppendLine();
+        sb.AppendLine($"*Customer:* {customer.Name}");
+        string reportDate = DateTime.Now.ToString("dd/MM/yyyy");
+        sb.AppendLine($"*Report Date:* {reportDate}");
+        sb.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        sb.AppendLine("*CURRENT BALANCE:*");
+
+        if (netSilver == 0 && netCash == 0)
+        {
+            sb.AppendLine("*✅ Account Clear - No pending balance*");
+        }
+        else
+        {
+            if (netSilver != 0) sb.AppendLine($"*{(netSilver > 0 ? "🔴 Udhaar" : "🟢 Advance")}:* {Math.Abs(netSilver):0.000} g Silver");
+            if (netCash != 0) sb.AppendLine($"*{(netCash > 0 ? "🔴 Udhaar" : "🟢 Advance")}:* ₹{Math.Abs(netCash):N2}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        sb.AppendLine();
+        sb.AppendLine("*DETAILED TRANSACTION HISTORY*");
+        sb.AppendLine($"*Total Transactions: {transactions.Count}*");
+        sb.AppendLine();
+
+        int i = 1;
+        foreach (var t in transactions)
+        {
+            sb.Append($"*{i}.* {t.TransactionDate:dd/MM/yyyy} ");
+            sb.AppendLine(t.TransactionType == "N" ? "*NAAM (Given)*" : "*JAMA (Received)*");
+
+            if (t.SilverInGram > 0) sb.AppendLine($"  *Silver:* {t.SilverInGram:0.000} g");
+            if (t.Cash > 0) sb.AppendLine($"  *Amount:* ₹{t.Cash:N2}");
+            if (!string.IsNullOrWhiteSpace(t.Comment)) sb.AppendLine($"  *Note:* {t.Comment}");
+            sb.AppendLine();
+            i++;
+        }
+
+        sb.AppendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        //sb.AppendLine("*📱 Generated by Hisab Diary App*");
+        sb.AppendLine($"_Complete transaction record as of {reportDate}_");
+        sb.AppendLine();
+        sb.AppendLine("_Thank you for your business! 🙏_");
+        sb.Append("MJ PAYAL JEWELLERS");
+
+        try
+        {
+            await _whatsAppService.SendInvoiceMessage(defaultPhone, sb.ToString());
+            return new { status = "success", message = "WhatsApp report sent successfully!" };
+        }
+        catch (Exception ex)
+        {
+            return new { status = "error", message = $"Failed to send WhatsApp: {ex.Message}" };
+        }
     }
 
 }

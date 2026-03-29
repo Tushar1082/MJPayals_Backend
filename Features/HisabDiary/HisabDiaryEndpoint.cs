@@ -79,6 +79,22 @@ public static class HisabDiaryEndpoints
         })
         .WithOpenApi();
 
+        group.MapDelete("/customer/{id:int}", async (
+            IHisabDiaryService hisabDiaryService,
+            int id
+        ) =>
+                {
+                    var result = await hisabDiaryService.DeleteHisabDiaryCustomerAsync(id);
+
+                    if (result is not null && result.GetType().GetProperty("status")?.GetValue(result)?.ToString() == "error")
+                    {
+                        return Results.NotFound(result);
+                    }
+
+                    return Results.Ok(result);
+                })
+        .WithOpenApi();
+
         //============================================ /hisabDiary/transaction ================================================
 
         group.MapPost("/transaction/add", async (
@@ -141,6 +157,29 @@ public static class HisabDiaryEndpoints
                 : Results.Ok(result);
         });
 
+        group.MapPut("/transaction/update/{id:int}", async (
+            int id,
+            AddHisabDiaryTransactionRequest req, 
+            IHisabDiaryService hisabDiaryService) =>
+        {
+            if (string.IsNullOrWhiteSpace(req.TransactionType))
+            {
+                return Results.BadRequest(new { status = "fail", message = "Missing Field: transactionType" });
+            }
+
+            var result = await hisabDiaryService.UpdateHisabDiaryTransactionAsync(
+                id,
+                req.TransactionType,
+                req.SilverInGram,
+                req.Cash,
+                req.Comment,
+                req.Date ?? DateTime.Now
+            );
+
+            return Results.Ok(result);
+        })
+        .WithOpenApi();
+
         //group.MapGet("/transaction/customer/{cusId:int}", async (
         //    IHisabDiaryService hisabDiaryService,
         //    int cusId
@@ -189,6 +228,21 @@ public static class HisabDiaryEndpoints
             return Results.Ok(result);
         })
        .WithOpenApi();
+
+        group.MapPost("/transaction/customer/{cusId:int}/whatsapp", async (
+            IHisabDiaryService hisabDiaryService,
+            int cusId
+        ) =>
+                {
+                    var result = await hisabDiaryService.SendWhatsAppReportAsync(cusId);
+
+                    if (result is not null && result.GetType().GetProperty("status")?.GetValue(result)?.ToString() == "error")
+                    {
+                        return Results.BadRequest(result);
+                    }
+                    return Results.Ok(result);
+                })
+        .WithOpenApi();
 
     }
 }
